@@ -1,1 +1,1 @@
-i love vibe coding
+Graphical tool for creating Numaflow pipelines
