@@ -1,23 +1,62 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import Editor from "@monaco-editor/react";
 
 export default function ConfigModal({ open, yamlText, onClose, onSave }) {
   const [text, setText] = useState(yamlText);
+  const modalRef = useRef(null);
 
-  // Sync external changes
+  // Load fresh YAML whenever opened
   useEffect(() => {
-    setText(yamlText);
-  }, [yamlText]);
+    if (open) setText(yamlText);
+  }, [yamlText, open]);
+
+  // ✅ ESC closes, Ctrl+S saves
+  useEffect(() => {
+    if (!open) return;
+
+    const handleKey = (e) => {
+      // ESC — close modal
+      if (e.key === "Escape") {
+        onClose();
+      }
+
+      // Ctrl+S / Cmd+S — save
+      if ((e.key === "s" || e.key === "S") && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();     // ✅ prevent browser Save As
+        onSave(text);           // ✅ call save using current editor text
+      }
+    };
+
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+
+  }, [open, text, onSave, onClose]);
+
+  // Click outside closes modal
+  const handleOverlayClick = (e) => {
+    if (modalRef.current && !modalRef.current.contains(e.target)) {
+      onClose();
+    }
+  };
 
   if (!open) return null;
 
   return (
-    <div style={styles.overlay}>
-      <div style={styles.modal}>
+    <div style={styles.overlay} onClick={handleOverlayClick}>
+      <div style={styles.modal} ref={modalRef}>
         <h3>Vertex Configuration</h3>
-        <textarea
-          style={styles.textarea}
+
+        <Editor
+          height="350px"
+          language="yaml"
+          theme="vs-dark"
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(value) => setText(value)}
+          options={{
+            minimap: { enabled: false },
+            fontSize: 13,
+            automaticLayout: true,
+          }}
         />
 
         <div style={styles.row}>
@@ -37,7 +76,7 @@ const styles = {
     zIndex: 1000
   },
   modal: {
-    background: 'grey',
+    background: '#2e2e2e',
     padding: '20px',
     width: '450px',
     borderRadius: '6px',
@@ -46,13 +85,17 @@ const styles = {
     flexDirection: 'column',
     gap: '10px'
   },
-  textarea: {
-    width: '100%',
-    height: '250px',
-    fontFamily: 'monospace',
-    fontSize: '13px'
+  row: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: '10px'
   },
-  row: { display: 'flex', justifyContent: 'flex-end', gap: '10px' },
-  saveBtn: { padding: '6px 12px', background: '#1976d2', color: 'white', border: 'none', borderRadius: '4px' },
-  closeBtn: { padding: '6px 12px', background: '#ccc', border: 'none', borderRadius: '4px' }
+  saveBtn: {
+    padding: '6px 12px',
+    background: '#1976d2',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer'
+  }
 };

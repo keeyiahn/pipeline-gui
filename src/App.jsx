@@ -11,20 +11,19 @@ import yaml from 'js-yaml';
 import Sidebar from './Sidebar';
 import ConfigModal from './ConfigModal';
 import ExportModal from './ExportModal';
+import TemplateModal from './TemplateModal';
 import 'reactflow/dist/style.css';
 
 export default function App() {
 
   const [vertexTypes, setVertexTypes] = useState({
-    input: {
-      label: "Source",
+    "generator-source": {
       config: {
         scale: { min: 1 },
         source: { generator: {} }
       }
     },
-    udf: {
-      label: "UDF",
+    "cat-udf": {
       config: {
         scale: { min: 1 },
         udf: {
@@ -35,14 +34,15 @@ export default function App() {
         }
       }
     },
-    output: {
-      label: "Sink",
+    "log-sink": {
       config: {
         scale: { min: 1 },
         sink: { log: {} }
       }
     }
   });
+
+  const [reactFlowInstance, setReactFlowInstance] = useState(null);
 
 
   const initialNodes = [];
@@ -61,25 +61,38 @@ export default function App() {
   const [exportOpen, setExportOpen] = useState(false);
   const [exportYaml, setExportYaml] = useState("");
 
+  const [editingEdgeId, setEditingEdgeId] = useState(null);
 
-  const showConfig = (type) => {
-    setSelectedType(type);
+  const [templateModalOpen, setTemplateModalOpen] = useState(false);
+  const [templateYaml, setTemplateYaml] = useState("");
 
+
+  const editTemplate = (type) => {
     const cfg = vertexTypes[type].config;
-
-    const doc = [{
-      name: "<vertex-name>",
-      ...cfg
-    }];
-
-    setModalYaml(yaml.dump(doc, { sortKeys: false }));
-    setModalOpen(true);
+    setTemplateYaml(yaml.dump(cfg, { sortKeys: false }));
+    setSelectedType(type);
+    setTemplateModalOpen(true);
   };
 
   const onConnect = useCallback(
     params => setEdges((eds) => addEdge(params, eds)),
     [setEdges]
   );
+
+  const onEdgeClick = (event, edge) => {
+    event.preventDefault();
+
+    setEditingEdgeId(edge.id); // track which edge is being edited
+
+    const doc = [{
+      from: edge.source,
+      to: edge.target
+    }];
+
+    setModalYaml(yaml.dump(doc, { sortKeys: false }));
+    setModalOpen(true);
+  };
+
 
   const saveConfig = (yamlText) => {
     try {
@@ -91,14 +104,41 @@ export default function App() {
       }
 
       const cfgObj = { ...parsed[0] };
-      const nodeName = cfgObj.name;
-      delete cfgObj.name;
+      const newNameFromYaml = cfgObj.name?.trim(); 
 
-      // ✅ CASE 1: Editing an instantiated node
+      // CASE 1: Creating a brand new template
+      if (selectedType && !vertexTypes[selectedType]) {
+        setVertexTypes(prev => ({
+          ...prev,
+          [selectedType]: {
+            label: selectedType,
+            config: cfgObj
+          }
+        }));
+
+        setModalOpen(false);
+        return;
+      }
+
+      // CASE 2: Editing an instantiated node
       if (editingNodeId) {
-        const oldId = editingNodeId;
-        const newId = nodeName;  // extracted from YAML name
+        if (!newNameFromYaml) {
+          alert("YAML must include a 'name:' field.");
+          return;
+        }
 
+        const oldId = editingNodeId;
+        const newId = newNameFromYaml;
+
+        // Prevent duplicate names
+        if (nodes.some(n => n.id === newId && newId !== oldId)) {
+          alert(`A vertex named "${newId}" already exists.`);
+          return;
+        }
+
+        delete cfgObj.name;
+
+        // ✅ Update node
         setNodes(prev =>
           prev.map(n =>
             n.id === oldId
@@ -107,7 +147,7 @@ export default function App() {
           )
         );
 
-        // ✅ Update edges that referenced old ID
+        // ✅ Update edges
         setEdges(prev =>
           prev.map(e => ({
             ...e,
@@ -121,8 +161,28 @@ export default function App() {
         return;
       }
 
+      // ✅ CASE 2: Editing an edge
+      if (editingEdgeId) {
+        const newFrom = cfgObj.from;
+        const newTo = cfgObj.to;
 
-      // ✅ CASE 2: Editing a vertex type default
+        setEdges(prev =>
+          prev.map(e =>
+            e.id === editingEdgeId
+              ? { ...e, source: newFrom, target: newTo }
+              : e
+          )
+        );
+
+        setEditingEdgeId(null);
+        setModalOpen(false);
+        return;
+      }
+
+      // ✅ CASE 3: Editing vertex type defaults
+      const nodeName = cfgObj.name;
+      delete cfgObj.name;
+
       setVertexTypes(prev => ({
         ...prev,
         [selectedType]: {
@@ -136,6 +196,8 @@ export default function App() {
       alert("Invalid YAML: " + err.message);
     }
   };
+
+
 
 
   // Delete edge on right click
@@ -181,23 +243,46 @@ export default function App() {
     const type = event.dataTransfer.getData('application/reactflow');
     if (!type) return;
 
-    const name = window.prompt("Enter vertex name:");
-    if (!name || nodes.some(n => n.id === name)) return;
+    const baseName = type;   // template name becomes base prefix
+    const regex = new RegExp(`^${baseName}-(\\d+)$`);
 
-    const position = { x: event.clientX - 150, y: event.clientY };
+    // find highest N in existing nodes
+    let maxN = 0;
+    nodes.forEach(n => {
+      const match = n.id.match(regex);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (num > maxN) maxN = num;
+      }
+    });
 
-    // Deep-ish copy of config to avoid accidental shared mutation
-    const nodeConfig = JSON.parse(JSON.stringify(vertexTypes[type].config));
+    const newName = `${baseName}-${maxN + 1}`;   // auto-generate next name
 
-    const newNode = {
-      id: name,
-      data: { label: name, config: nodeConfig },
-      position,
-      type: type === "input" ? "input" : type === "output" ? "output" : undefined
-    };
+    const position = reactFlowInstance.project({
+      x: event.clientX,
+      y: event.clientY
+    });
+
+  const config = vertexTypes[type].config;
+  const nodeConfig = JSON.parse(JSON.stringify(config));
+
+  // ✅ infer type from config
+  let reactFlowType;
+  if (config.source) reactFlowType = "input";
+  else if (config.sink) reactFlowType = "output";
+  else reactFlowType = undefined; // UDF / default
+
+
+  const newNode = {
+    id: newName,
+    data: { label: newName, config: nodeConfig },
+    position,
+    type: reactFlowType
+  };
 
     setNodes(nds => [...nds, newNode]);
   };
+
 
 
   const exportGraph = () => {
@@ -240,22 +325,68 @@ export default function App() {
     setExportOpen(false);
   };
 
+  const createCustomTemplate = () => {
+    setTemplateYaml("scale:\n  min: 1"); // starter config
+    setSelectedType(null);
+    setTemplateModalOpen(true);
+  };
+
+  const addTemplate = (name, configObj) => {
+    setVertexTypes(prev => {
+      const updated = { ...prev };
+
+      // ✅ If editing and renamed template: remove old key
+      if (selectedType && selectedType !== name) {
+        delete updated[selectedType];
+      }
+
+      updated[name] = {
+        label: name,
+        config: configObj
+      };
+
+      return updated;
+    });
+
+    setSelectedType(null);
+    setTemplateModalOpen(false);
+  };
 
   return (
     <div style={{ display: 'flex', width: '100vw', height: '100vh' }}>
 
       {/* ✅ Sidebar */}
-      <Sidebar showConfig={showConfig} vertexTypes={vertexTypes}/>
+      <Sidebar 
+        editTemplate={editTemplate} 
+        vertexTypes={vertexTypes}
+        createCustomTemplate={createCustomTemplate}
+      />
       <ConfigModal
         open={modalOpen}
         yamlText={modalYaml}
         onSave={saveConfig}
+        onClose={() => {
+          setModalOpen(false);
+          setEditingNodeId(null);
+          setEditingEdgeId(null);
+        }}
       />
       <ExportModal
         open={exportOpen}
         yamlText={exportYaml}
         onClose={() => setExportOpen(false)}
         onDownload={downloadYaml}
+      />
+      <TemplateModal
+        open={templateModalOpen}
+        defaultYaml={templateYaml}
+        isEditing={!!selectedType}
+        templateName={selectedType}
+        onClose={() => {
+          setTemplateModalOpen(false);
+          setSelectedType(null);
+        }}
+        onCreate={addTemplate}
       />
       {/* ✅ Canvas */}
       <div style={{ flex: 1 }}>
@@ -274,6 +405,7 @@ export default function App() {
         </button>
 
           <ReactFlow
+            onInit={setReactFlowInstance}
             nodes={nodes}
             edges={edges}
             onNodesChange={onNodesChange}
@@ -281,6 +413,7 @@ export default function App() {
             onEdgeContextMenu={onEdgeRightClick}
             onNodeContextMenu={onNodeRightClick}
             onNodeClick={onNodeClick}
+            onEdgeClick={onEdgeClick}
             onConnect={onConnect}
             onDrop={onDrop}
             onDragOver={onDragOver}
@@ -289,6 +422,7 @@ export default function App() {
 
           <Background />
           <Controls />
+          <MiniMap />
         </ReactFlow>
       </div>
     </div>

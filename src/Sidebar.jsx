@@ -1,24 +1,27 @@
 import React from 'react';
 
-const Sidebar = ({ showConfig, vertexTypes }) => {
+const Sidebar = ({ editTemplate, vertexTypes, createCustomTemplate }) => {
   return (
     <aside style={styles.sidebar}>
       <div style={styles.header}>Vertices</div>
 
+      {/* ✅ + Add Template Button */}
+      <button style={styles.addBtn} onClick={createCustomTemplate}>
+        + Add Template
+      </button>
+
       {Object.entries(vertexTypes).map(([key, info]) => (
         <div
           key={key}
-          onClick={() => showConfig(key)}
+          onClick={() => editTemplate(key)}
           onDragStart={(e) => {
             e.dataTransfer.setData('application/reactflow', key);
             e.dataTransfer.effectAllowed = 'move';
           }}
           draggable
           style={styles.item}
-          onMouseEnter={(e) => e.currentTarget.style.background = '#e7efff'}
-          onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
         >
-          {info.label}
+          {key}
         </div>
       ))}
     </aside>
@@ -41,8 +44,16 @@ const styles = {
   header: {
     fontWeight: '600',
     fontSize: '15px',
-    marginBottom: '6px',
     color: '#333'
+  },
+  addBtn: {
+    padding: '6px 10px',
+    borderRadius: '4px',
+    background: '#1976d2',
+    color: 'white',
+    border: 'none',
+    cursor: 'pointer',
+    marginBottom: '8px'
   },
   item: {
     padding: '8px 10px',
