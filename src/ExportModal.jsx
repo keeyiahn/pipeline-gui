@@ -48,7 +48,7 @@ const styles = {
     zIndex: 2000
   },
   modal: {
-    background: 'grey',
+    background: '#2e2e2e',
     padding: '20px',
     width: '600px',
     borderRadius: '6px',
