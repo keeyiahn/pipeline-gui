@@ -13,6 +13,7 @@ import ConfigModal from './ConfigModal';
 import ExportModal from './ExportModal';
 import TemplateModal from './TemplateModal';
 import 'reactflow/dist/style.css';
+import { importPipelineFromFile } from './utils/importPipeline';
 
 export default function App() {
 
@@ -75,23 +76,28 @@ export default function App() {
   };
 
   const onConnect = useCallback(
-    params => setEdges((eds) => addEdge(params, eds)),
+    (params) =>
+      setEdges((eds) =>
+        addEdge({ ...params, data: { conditions: null } }, eds)
+      ),
     [setEdges]
   );
 
   const onEdgeClick = (event, edge) => {
     event.preventDefault();
 
-    setEditingEdgeId(edge.id); // track which edge is being edited
+    setEditingEdgeId(edge.id);
 
-    const doc = [{
+    const edgeYaml = [{
       from: edge.source,
-      to: edge.target
+      to: edge.target,
+      ...(edge.data?.conditions ? { conditions: edge.data.conditions } : {})
     }];
 
-    setModalYaml(yaml.dump(doc, { sortKeys: false }));
+    setModalYaml(yaml.dump(edgeYaml, { sortKeys: false }));
     setModalOpen(true);
   };
+
 
 
   const saveConfig = (yamlText) => {
@@ -138,7 +144,7 @@ export default function App() {
 
         delete cfgObj.name;
 
-        // ✅ Update node
+        // Update node
         setNodes(prev =>
           prev.map(n =>
             n.id === oldId
@@ -147,7 +153,7 @@ export default function App() {
           )
         );
 
-        // ✅ Update edges
+        // Update edges
         setEdges(prev =>
           prev.map(e => ({
             ...e,
@@ -161,15 +167,21 @@ export default function App() {
         return;
       }
 
-      // ✅ CASE 2: Editing an edge
+      // CASE 2: Editing an edge
       if (editingEdgeId) {
         const newFrom = cfgObj.from;
         const newTo = cfgObj.to;
-
-        setEdges(prev =>
-          prev.map(e =>
+        const newConditions = cfgObj.conditions ?? null;
+      
+        setEdges((prev) =>
+          prev.map((e) =>
             e.id === editingEdgeId
-              ? { ...e, source: newFrom, target: newTo }
+              ? {
+                  ...e,
+                  source: newFrom,
+                  target: newTo,
+                  data: newConditions ? { conditions: newConditions } : undefined,
+                }
               : e
           )
         );
@@ -179,7 +191,7 @@ export default function App() {
         return;
       }
 
-      // ✅ CASE 3: Editing vertex type defaults
+      // CASE 3: Editing vertex type defaults
       const nodeName = cfgObj.name;
       delete cfgObj.name;
 
@@ -209,12 +221,12 @@ export default function App() {
   const onNodeClick = (event, node) => {
     event.preventDefault();
 
-    setEditingNodeId(node.id);   // ✅ track node being edited
+    setEditingNodeId(node.id);   // track node being edited
 
     const cfg = JSON.parse(JSON.stringify(node.data.config));
 
     const doc = [{
-      name: node.id,   // ✅ name is known for instances
+      name: node.id,   // name is known for instances
       ...cfg
     }];
 
@@ -291,10 +303,19 @@ export default function App() {
       ...JSON.parse(JSON.stringify(n.data.config))
     }));
 
-    const edgesYaml = edges.map(e => ({
-      from: e.source,
-      to: e.target
-    }));
+    const edgesYaml = edges.map(e => {
+      const base = {
+        from: e.source,
+        to: e.target,
+      };
+
+      // If edge has stored conditions, include them in YAML
+      if (e.data?.conditions) {
+        base.conditions = e.data.conditions;
+      }
+
+      return base;
+    });
 
     const pipeline = {
       apiVersion: "numaflow.numaproj.io/v1alpha1",
@@ -335,7 +356,7 @@ export default function App() {
     setVertexTypes(prev => {
       const updated = { ...prev };
 
-      // ✅ If editing and renamed template: remove old key
+      // If editing and renamed template: remove old key
       if (selectedType && selectedType !== name) {
         delete updated[selectedType];
       }
@@ -352,10 +373,21 @@ export default function App() {
     setTemplateModalOpen(false);
   };
 
+  const handleImport = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    try {
+      await importPipelineFromFile(file, setNodes, setEdges);
+    } catch (err) {
+      alert("Import failed: " + err.message);
+    }
+  };
+
+
   return (
     <div style={{ display: 'flex', width: '100vw', height: '100vh' }}>
 
-      {/* ✅ Sidebar */}
       <Sidebar 
         editTemplate={editTemplate} 
         vertexTypes={vertexTypes}
@@ -364,11 +396,13 @@ export default function App() {
       <ConfigModal
         open={modalOpen}
         yamlText={modalYaml}
+        isEdge={!!editingEdgeId}
         onSave={saveConfig}
         onClose={() => {
           setModalOpen(false);
           setEditingNodeId(null);
           setEditingEdgeId(null);
+          setSelectedType(null);
         }}
       />
       <ExportModal
@@ -388,7 +422,7 @@ export default function App() {
         }}
         onCreate={addTemplate}
       />
-      {/* ✅ Canvas */}
+      {/* Canvas */}
       <div style={{ flex: 1 }}>
         <button
           onClick={exportGraph}
@@ -403,6 +437,13 @@ export default function App() {
         >
           Export pipeline
         </button>
+        <input
+          type="file"
+          accept=".yaml,.yml"
+          onChange={handleImport}
+          style={{ position: "absolute", top: 10, right: 0, zIndex: 10 }}
+        />
+
 
           <ReactFlow
             onInit={setReactFlowInstance}
