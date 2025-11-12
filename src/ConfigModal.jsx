@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Editor from "@monaco-editor/react";
 
-export default function ConfigModal({ open, yamlText, onClose, onSave }) {
+export default function ConfigModal({ open, yamlText, isEdge, onClose, onSave }) {
   const [text, setText] = useState(yamlText);
   const modalRef = useRef(null);
 
@@ -44,7 +44,7 @@ export default function ConfigModal({ open, yamlText, onClose, onSave }) {
   return (
     <div style={styles.overlay} onClick={handleOverlayClick}>
       <div style={styles.modal} ref={modalRef}>
-        <h3>Vertex Configuration</h3>
+        <h3>{isEdge ? "Edge configuration" : "Vertex configuration"}</h3>
 
         <Editor
           height="350px"
