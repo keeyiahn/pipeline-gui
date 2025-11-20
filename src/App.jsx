@@ -332,7 +332,7 @@ export default function App() {
 
   const downloadYaml = (pipelineName) => {
     const yamlWithName = exportYaml.replace(
-      /name:\s*"<pipeline-name>"/,
+      /name:\s*"?<pipeline-name>"?/,
       `name: ${pipelineName}`
     );
 
